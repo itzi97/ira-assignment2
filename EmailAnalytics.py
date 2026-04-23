@@ -9,7 +9,7 @@ from gensim.corpora import Dictionary
 from gensim.models import LdaModel
 from textblob import TextBlob
 
-# NLTK and necessary downloads from it
+# NLTK and necessary downloads from it import nltk
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
@@ -382,13 +382,19 @@ class Email:
         """
         Return the emails sent by a specific sender.
         """
-        pass
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        return self.df[self.df["sender"].str.lower() == sender.strip().lower()]
 
     def get_emails_by_topic(self, topic_id: int) -> pd.DataFrame:
         """
         Return the emails associated with a specific topic.
         """
-        pass
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        if "dominant_topic" not in self.df.columns:
+            raise RuntimeError("Topics not assigned. Call assign_topics() first.")
+        return self.df[self.df["dominant_topic"] == topic_id]
 
     def graph_metrics(self) -> Dict[str, float]:
         """
@@ -401,4 +407,17 @@ class Email:
             "density": ...
         }
         """
-        pass
+        if self.graph is None:
+            raise RuntimeError("Graph not built. Call build_interaction_graph() first.")
+
+        return {
+            "num_nodes": self.graph.number_of_nodes(),
+            "num_edges": self.graph.number_of_edges(),
+            "density": round(nx.density(self.graph), 4),
+            "avg_degree": round(
+                sum(d for _, d in self.graph.degree()) / self.graph.number_of_nodes(), 4
+            ),
+            "top_5_by_degree": sorted(
+                self.graph.degree(), key=lambda x: x[1], reverse=True
+            )[:5],
+        }
