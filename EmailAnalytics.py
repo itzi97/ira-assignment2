@@ -300,7 +300,33 @@ class Email:
         pd.DataFrame
             DataFrame with topic assignment.
         """
-        pass
+        if self.lda_model is None or self.corpus is None:
+            raise RuntimeError("LDA model not trained. Call train_topic_model() first.")
+
+        dominant_topics = []
+        topic_keywords = []
+
+        for bow in self.corpus:
+            # Get topic distribution for this document
+            topic_dist = self.lda_model.get_document_topics(
+                bow, minimum_probability=0.0
+            )
+
+            # Pick the dominant topic (highest probability)
+            dominant = max(topic_dist, key=lambda x: x[1])
+            dominant_topic_id = dominant[0]
+
+            # Get top keywords for that topic
+            keywords = self.lda_model.show_topic(dominant_topic_id, topn=5)
+            keywords_str = ", ".join([word for word, _ in keywords])
+
+            dominant_topics.append(dominant_topic_id)
+            topic_keywords.append(keywords_str)
+
+        self.df["dominant_topic"] = dominant_topics
+        self.df["topic_keywords"] = topic_keywords
+
+        return self.df
 
     def get_topic_report(self, topn_words: int = 5) -> pd.DataFrame:
         """
