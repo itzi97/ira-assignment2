@@ -67,6 +67,15 @@ class Email:
         self.corpus = None
         self.lda_model = None
 
+    def _require_dataframe(self):
+        """Raise an error if load_data() has not been called yet."""
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+
+    def _require_model(self):
+        """Raise an error if train_topic_model() has not been called yet."""
+        pass
+
     def load_data(self) -> pd.DataFrame:
         """
         Read the CSV, validate columns and prepare the base DataFrame.
@@ -122,8 +131,7 @@ class Email:
         nx.DiGraph
             Directed graph with weighted edges.
         """
-        if self.df is None:
-            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        self._require_dataframe()
 
         self.graph = nx.DiGraph()
 
@@ -172,8 +180,7 @@ class Email:
         pd.DataFrame
             DataFrame updated with the sentiment columns.
         """
-        if self.df is None:
-            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        self._require_dataframe()
 
         if text_column not in self.df.columns:
             raise ValueError(f"Column '{text_column}' not found in DataFrame.")
@@ -261,8 +268,7 @@ class Email:
         tuple
             (lda_model, dictionary, corpus)
         """
-        if self.df is None:
-            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        self._require_dataframe()
 
         # Preprocess all texts
         tokenized = self.df["text"].apply(self.preprocess_text_for_lda).tolist()
@@ -382,16 +388,14 @@ class Email:
         """
         Return the emails sent by a specific sender.
         """
-        if self.df is None:
-            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        self._require_dataframe()
         return self.df[self.df["sender"].str.lower() == sender.strip().lower()]
 
     def get_emails_by_topic(self, topic_id: int) -> pd.DataFrame:
         """
         Return the emails associated with a specific topic.
         """
-        if self.df is None:
-            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+        self._require_dataframe()
         if "dominant_topic" not in self.df.columns:
             raise RuntimeError("Topics not assigned. Call assign_topics() first.")
         return self.df[self.df["dominant_topic"] == topic_id]
