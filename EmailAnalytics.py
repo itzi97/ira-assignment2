@@ -5,17 +5,12 @@ import string
 import os
 import networkx as nx
 import pandas as pd
-from gensim.corpora import Dictionary
-from gensim.models import LdaModel
-from textblob import TextBlob
-
-# NLTK and necessary downloads from it import nltk
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-
-nltk.download("stopwords")
-nltk.download("wordnet")
+from gensim.corpora import Dictionary
+from gensim.models import LdaModel
+from textblob import TextBlob
 
 
 class Email:
@@ -62,10 +57,14 @@ class Email:
         """
         self.csv_path = csv_path
         self.df = None
-        self.graph = None
-        self.dictionary = None
-        self.corpus = None
-        self.lda_model = None
+        self.graph = None  # build_interaction_graph() -> directed graph
+        self.dictionary = None  # train_topic_model() -> gensim token dictionary
+        self.corpus = None  # train_topic_model() -> bag-of-words
+        self.lda_model = None  # train_topic_model() -> trained LDA model
+
+        # Download NLTK resources if not present
+        nltk.download("stopwords", quiet=True)
+        nltk.download("wordnet", quiet=True)
 
     def _require_dataframe(self):
         """Raise an error if load_data() has not been called yet."""
@@ -74,7 +73,13 @@ class Email:
 
     def _require_model(self):
         """Raise an error if train_topic_model() has not been called yet."""
-        pass
+        if self.lda_model is None or self.corpus is None:
+            raise RuntimeError("LDA model not trained. Call train_topic_model()")
+
+    def _require_topics(self):
+        """Raise an error if assign_topics() has not been called yet."""
+        if "dominant_topic" not in self.df.columns:
+            raise RuntimeError("Topics not assigned. Call assign_topics() first.")
 
     def load_data(self) -> pd.DataFrame:
         """
@@ -93,19 +98,26 @@ class Email:
         pd.DataFrame
             Processed DataFrame.
         """
+        # Check if file exists before trying to read it
         if not os.path.exists(self.csv_path):
             raise FileNotFoundError(f"CSV file not found {self.csv_path}")
 
         df = pd.read_csv(self.csv_path)
 
+        # Validate that all 7 required columns are present
         missing = [col for col in self.REQUIRED_COLUMNS if col not in df.columns]
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
 
+        # Convert date column from plain string
         df["date"] = pd.to_datetime(df["date"])
+
+        # Fill NaN values in text-based columns with empty strings
         df["cc"] = df["cc"].fillna("")
         df["subject"] = df["subject"].fillna("")
         df["body"] = df["body"].fillna("")
+
+        # Combined text column used by sentiment analysis and LDA
         df["text"] = df["subject"] + " " + df["body"]
 
         self.df = df
@@ -131,22 +143,25 @@ class Email:
         nx.DiGraph
             Directed graph with weighted edges.
         """
+        # Ensure load_data() has been called before this method
         self._require_dataframe()
 
+        # Initialize empty directed graph (emails have direction)
         self.graph = nx.DiGraph()
 
         for _, row in self.df.iterrows():
+            # Normalize sender address
             sender = row["sender"].strip().lower()
 
-            # Parse recipients and cc
+            # Parse recipients: Normalize, split, strip
             recipients = [
                 r.strip().lower()
                 for r in str(row["recipients"]).replace(",", ";").split(";")
                 if r.strip()
             ]
 
+            # Parse cc addresses the same way, but only if include_cc=True
             cc_list = []
-
             if include_cc and row["cc"]:
                 cc_list = [
                     r.strip().lower()
@@ -154,6 +169,8 @@ class Email:
                     if r.strip()
                 ]
 
+            # Add edge from sender to each recipient (and CC if included)
+            # If edge exists: increment weight instead of adding duplicate
             for recipient in recipients + cc_list:
                 if self.graph.has_edge(sender, recipient):
                     self.graph[sender][recipient]["weight"] += 1
@@ -180,11 +197,14 @@ class Email:
         pd.DataFrame
             DataFrame updated with the sentiment columns.
         """
+        # Ensure load_data() has called before this method
         self._require_dataframe()
 
+        # Validate that column exists in DataFrame
         if text_column not in self.df.columns:
             raise ValueError(f"Column '{text_column}' not found in DataFrame.")
 
+        # Converts numeric polarity to human-readable label
         def get_sentiment_label(polarity: float) -> str:
             if polarity <= -0.05:
                 return "negative"
@@ -193,14 +213,17 @@ class Email:
             else:
                 return "neutral"
 
+        # Apply TextBlob to each email's text and extract polarity score
         self.df["polarity"] = self.df[text_column].apply(
             lambda t: TextBlob(str(t)).sentiment.polarity
         )
 
+        # Extract subjectivity score from TextBlob
         self.df["subjectivity"] = self.df[text_column].apply(
             lambda t: TextBlob(str(t)).sentiment.subjectivity
         )
 
+        # Map each polarity float to its categorical label using get_sentiment_label
         self.df["sentiment_label"] = self.df["polarity"].apply(get_sentiment_label)
 
         return self.df
@@ -268,16 +291,17 @@ class Email:
         tuple
             (lda_model, dictionary, corpus)
         """
+        # Ensure load_data() has been called before this method
         self._require_dataframe()
 
-        # Preprocess all texts
+        # Preprocess all texts to list of clean tokens
         tokenized = self.df["text"].apply(self.preprocess_text_for_lda).tolist()
 
         # Build gensim Dictionary and filter extremes
         self.dictionary = Dictionary(tokenized)
         self.dictionary.filter_extremes(no_below=1, no_above=0.9)
 
-        # Build bag-of-words corpus
+        # Build bag-of-words corpus (list of (token_id, count) pairs)
         self.corpus = [self.dictionary.doc2bow(tokens) for tokens in tokenized]
 
         # Train LDA model
@@ -306,8 +330,8 @@ class Email:
         pd.DataFrame
             DataFrame with topic assignment.
         """
-        if self.lda_model is None or self.corpus is None:
-            raise RuntimeError("LDA model not trained. Call train_topic_model() first.")
+        # Ensure train_topic_model() has been called before this method
+        self._require_model()
 
         dominant_topics = []
         topic_keywords = []
@@ -350,13 +374,13 @@ class Email:
         -------
         pd.DataFrame
         """
-        if self.lda_model is None:
-            raise RuntimeError("LDA model not trained. Call train_topic_model() first.")
-
-        if "dominant_topic" not in self.df.columns:
-            raise RuntimeError("Topics not assigned. Calls assign_topics() first.")
+        # Ensure train_topic_model() and assign_topics() have been called first
+        self._require_model()
+        self._require_topics()
 
         rows = []
+
+        # Iterate over every topic ID the model knows about
         for topic_id in range(self.lda_model.num_topics):
             # Get keywords for this topic
             keywords = self.lda_model.show_topic(topic_id, topn=topn_words)
@@ -373,6 +397,7 @@ class Email:
                 else None
             )
 
+            # Build one row per topic and append to results list
             rows.append({
                 "topic_id": topic_id,
                 "keywords": keywords_str,
@@ -388,16 +413,21 @@ class Email:
         """
         Return the emails sent by a specific sender.
         """
+        # Ensure load_data() has been called before this method
         self._require_dataframe()
+
+        # Normalize input the same way load_data() data was normalized
         return self.df[self.df["sender"].str.lower() == sender.strip().lower()]
 
     def get_emails_by_topic(self, topic_id: int) -> pd.DataFrame:
         """
         Return the emails associated with a specific topic.
         """
+        # Ensure both load_data() and assign_topics() have been called
         self._require_dataframe()
-        if "dominant_topic" not in self.df.columns:
-            raise RuntimeError("Topics not assigned. Call assign_topics() first.")
+        self._require_topics()
+
+        # Return all orws where dominant_topic matches (boolean filter)
         return self.df[self.df["dominant_topic"] == topic_id]
 
     def graph_metrics(self) -> Dict[str, float]:
@@ -415,12 +445,17 @@ class Email:
             raise RuntimeError("Graph not built. Call build_interaction_graph() first.")
 
         return {
+            # Total number of unique email addresses (nodes) in network
             "num_nodes": self.graph.number_of_nodes(),
+            # Total number of sender->recipient relationships (edges)
             "num_edges": self.graph.number_of_edges(),
+            # Ratio of edges to maximum possible edges
             "density": round(nx.density(self.graph), 4),
+            # Average number of connections per node (in + out edges)
             "avg_degree": round(
                 sum(d for _, d in self.graph.degree()) / self.graph.number_of_nodes(), 4
             ),
+            # 5 most connected people in network by total degree
             "top_5_by_degree": sorted(
                 self.graph.degree(), key=lambda x: x[1], reverse=True
             )[:5],
