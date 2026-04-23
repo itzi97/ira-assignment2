@@ -344,7 +344,39 @@ class Email:
         -------
         pd.DataFrame
         """
-        pass
+        if self.lda_model is None:
+            raise RuntimeError("LDA model not trained. Call train_topic_model() first.")
+
+        if "dominant_topic" not in self.df.columns:
+            raise RuntimeError("Topics not assigned. Calls assign_topics() first.")
+
+        rows = []
+        for topic_id in range(self.lda_model.num_topics):
+            # Get keywords for this topic
+            keywords = self.lda_model.show_topic(topic_id, topn=topn_words)
+            keywords_str = ", ".join([word for word, _ in keywords])
+
+            # Filter emails assigned to this topic
+            topic_emails = self.df[self.df["dominant_topic"] == topic_id]
+            num_emails = len(topic_emails)
+
+            # Mean polarity (requires analyze_sentiment to have been called)
+            mean_polarity = (
+                topic_emails["polarity"].mean()
+                if "polarity" in self.df.columns
+                else None
+            )
+
+            rows.append({
+                "topic_id": topic_id,
+                "keywords": keywords_str,
+                "num_emails": num_emails,
+                "mean_polarity": round(mean_polarity, 4)
+                if mean_polarity is not None
+                else None,
+            })
+
+        return pd.DataFrame(rows)
 
     def get_emails_by_sender(self, sender: str) -> pd.DataFrame:
         """
