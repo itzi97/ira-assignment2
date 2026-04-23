@@ -261,7 +261,29 @@ class Email:
         tuple
             (lda_model, dictionary, corpus)
         """
-        pass
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+
+        # Preprocess all texts
+        tokenized = self.df["text"].apply(self.preprocess_text_for_lda).tolist()
+
+        # Build gensim Dictionary and filter extremes
+        self.dictionary = Dictionary(tokenized)
+        self.dictionary.filter_extremes(no_below=1, no_above=0.9)
+
+        # Build bag-of-words corpus
+        self.corpus = [self.dictionary.doc2bow(tokens) for tokens in tokenized]
+
+        # Train LDA model
+        self.lda_model = LdaModel(
+            corpus=self.corpus,
+            id2word=self.dictionary,
+            num_topics=num_topics,
+            passes=passes,
+            random_state=random_state,
+        )
+
+        return self.lda_model, self.dictionary, self.corpus
 
     def assign_topics(self) -> pd.DataFrame:
         """
