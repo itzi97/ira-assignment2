@@ -113,7 +113,37 @@ class Email:
         nx.DiGraph
             Directed graph with weighted edges.
         """
-        pass
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+
+        self.graph = nx.DiGraph()
+
+        for _, row in self.df.iterrows():
+            sender = row["sender"].strip().lower()
+
+            # Parse recipients and cc
+            recipients = [
+                r.strip().lower()
+                for r in str(row["recipients"]).replace(",", ";").split(";")
+                if r.strip()
+            ]
+
+            cc_list = []
+
+            if include_cc and row["cc"]:
+                cc_list = [
+                    r.strip().lower()
+                    for r in str(row["cc"]).replace(",", ";").split(";")
+                    if r.strip()
+                ]
+
+            for recipient in recipients + cc_list:
+                if self.graph.has_edge(sender, recipient):
+                    self.graph[sender][recipient]["weight"] += 1
+                else:
+                    self.graph.add_edge(sender, recipient, weight=1)
+
+        return self.graph
 
     def analyze_sentiment(self, text_column: str = "text") -> pd.DataFrame:
         """
@@ -133,7 +163,31 @@ class Email:
         pd.DataFrame
             DataFrame updated with the sentiment columns.
         """
-        pass
+        if self.df is None:
+            raise RuntimeError("DataFrame is not loaded. Call load_data() first.")
+
+        if text_column not in self.df.columns:
+            raise ValueError(f"Column '{text_column}' not found in DataFrame.")
+
+        def get_sentiment_label(polarity: float) -> str:
+            if polarity <= -0.05:
+                return "negative"
+            elif polarity >= 0.05:
+                return "positive"
+            else:
+                return "neutral"
+
+        self.df["polarity"] = self.df[text_column].apply(
+            lambda t: TextBlob(str(t)).sentiment.polarity
+        )
+
+        self.df["subjectivity"] = self.df[text_column].apply(
+            lambda t: TextBlob(str(t)).sentiment.subjectivity
+        )
+
+        self.df["sentiment_label"] = self.df["polarity"].apply(get_sentiment_label)
+
+        return self.df
 
     def preprocess_text_for_lda(self, text: str) -> List[str]:
         """
