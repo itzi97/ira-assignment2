@@ -21,7 +21,13 @@ class Email:
     """
 
     REQUIRED_COLUMNS = [
-        "email_id", "date", "sender", "recipients", "cc", "subject", "body"
+        "email_id",
+        "date",
+        "sender",
+        "recipients",
+        "cc",
+        "subject",
+        "body",
     ]
 
     def __init__(self, csv_path: str):
@@ -67,7 +73,25 @@ class Email:
         pd.DataFrame
             Processed DataFrame.
         """
-        pass
+        import os
+
+        if not os.path.exists(self.csv_path):
+            raise FileNotFoundError(f"CSV file not found {self.csv_path}")
+
+        df = pd.read_csv(self.csv_path)
+
+        missing = [col for col in self.REQUIRED_COLUMNS if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+        df["date"] = pd.to_datetime(df["date"])
+        df["cc"] = df["cc"].fillna("")
+        df["subject"] = df["subject"].fillna("")
+        df["body"] = df["body"].fillna("")
+        df["text"] = df["subject"] + " " + df["body"]
+
+        self.df = df
+        return self.df
 
     def build_interaction_graph(self, include_cc: bool = True) -> nx.DiGraph:
         """
@@ -130,10 +154,7 @@ class Email:
         pass
 
     def train_topic_model(
-        self,
-        num_topics: int = 3,
-        passes: int = 15,
-        random_state: int = 42
+        self, num_topics: int = 3, passes: int = 15, random_state: int = 42
     ) -> Tuple[LdaModel, Dictionary, List[List[tuple]]]:
         """
         Train an LDA model with gensim.
