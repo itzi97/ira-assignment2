@@ -1,10 +1,21 @@
 from typing import Dict, List, Tuple
 
+import re
+import string
+import os
 import networkx as nx
 import pandas as pd
 from gensim.corpora import Dictionary
 from gensim.models import LdaModel
 from textblob import TextBlob
+
+# NLTK and necessary downloads from it
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+nltk.download("stopwords")
+nltk.download("wordnet")
 
 
 class Email:
@@ -73,8 +84,6 @@ class Email:
         pd.DataFrame
             Processed DataFrame.
         """
-        import os
-
         if not os.path.exists(self.csv_path):
             raise FileNotFoundError(f"CSV file not found {self.csv_path}")
 
@@ -205,7 +214,34 @@ class Email:
         -------
         List[str]
         """
-        pass
+        # Lowercase
+        text = text.lower()
+
+        # Remove URLs
+        text = re.sub(r"https\S+|www\S+", "", text)
+
+        # Remove email addresses
+        text = re.sub(r"\S+@\S+", "", text)
+
+        # Remove punctuation and digits
+        text = re.sub(r"[%s]" % re.escape(string.punctuation), " ", text)
+        text = re.sub(r"\d+", "", text)
+
+        # Tokenize
+        tokens = text.split()
+
+        # Remove stopwords
+        stop_words = set(stopwords.words("english"))
+        tokens = [t for t in tokens if t not in stop_words]
+
+        # Remove short tokens
+        tokens = [t for t in tokens if len(t) >= 3]
+
+        # Lemmatize
+        lemmatizer = WordNetLemmatizer()
+        tokens = [lemmatizer.lemmatize(t) for t in tokens]
+
+        return tokens
 
     def train_topic_model(
         self, num_topics: int = 3, passes: int = 15, random_state: int = 42
